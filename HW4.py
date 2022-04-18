@@ -1,3 +1,4 @@
+from cv2 import threshold
 import numpy as np
 import time
 import matplotlib.pyplot as plt
@@ -6,9 +7,10 @@ import sys
 is_test = True
 is_random = False
 seed = 521
-N = 10
+N = 1000
 dimension = 3
 learning_rate = 1
+thresd = 0.00001
 
 def generate_data(x_mu,x_var,y_mu,y_var,n):
     data = np.zeros((n,2))
@@ -18,25 +20,35 @@ def generate_data(x_mu,x_var,y_mu,y_var,n):
     data[:,1] = Y
     return data
 
-def logis_fun(Phi,W):
-    return 1 / (1 + np.exp(-Phi@W))
+def logis_fun(phi,W):
+    return 1 / (1 + np.exp(-(phi@W)))
 
-def predict(X,W):
-    Y = np.zeros_like(X)
-    # design matrix
-    Phi = np.zeros((dimension))
-    for i,x in enumerate(X):
-        for k in range(dimension):
-            Phi[k] = x**k
-        prob = logis_fun(Phi,W)
+# f(D) = w0 + x*w1 + y*w2
+def f_x(x,y,W):
+    return W[0] + x*W[1] + y*W[2]
+
+# design matrix
+def design_mat(x,y):
+    phi = np.zeros(dimension)
+    phi[0] = 1
+    phi[1] = x
+    phi[2] = y
+    return phi
+
+
+def predict(D,W):
+    Z = np.zeros_like(D[:,0])
+    for i,d in enumerate(D):
+        phi = design_mat(d[0],d[1])
+        prob = logis_fun(phi,W)
         if prob < 0.5:
-            Y[i] = 0
+            Z[i] = 1
         else:
-            Y[i] = 1
-    return Y
+            Z[i] = 0
+    return Z
 
 def logistic(D1,D2):
-    Phi = np.zeros((dimension))
+    # f(D) = w0 + w1*x + w2*y
     W = np.array([[1],[1],[1]])
     A = []
     mat_len = (len(D1) + len(D2))
@@ -44,28 +56,30 @@ def logistic(D1,D2):
     L = np.zeros((mat_len,1))
     Y = np.zeros((mat_len,1))
     for i,d in enumerate(D1):
-        for k in range(dimension):
-            Phi[k] = d[0]**k
-        A.append(Phi.copy())
+        phi = design_mat(d[0],d[1])
+        A.append(phi.copy())
         Y[i,0] = 0
     for i,d in enumerate(D2):
-        for k in range(dimension):
-            Phi[k] = d[0]**k
-        A.append(Phi.copy())
+        phi = design_mat(d[0],d[1])
+        A.append(phi.copy())
         Y[len(D1) + i,0] = 1
     A = np.array(A)
     for i in range(N):
-        print("W : \n",W)
+        pre_W = W.copy()
         for j in range(mat_len):
             L[j,0] = logis_fun(A[j],W)
-        # print(L - Y)
-        W = W + learning_rate* A.T@(L - Y) / mat_len
-        print("Gradient : \n",learning_rate* A.T@(L - Y) / mat_len)
+        grad = learning_rate* A.T@(Y - L)
+        W = W + grad
+        # print("Gradient : \n",grad)
+        # print("W : \n",W)
+        if (np.all((np.abs(pre_W - W) < thresd))):
+            print("Converge at iteration {}.".format(i))
+            break
     
     # prediction
-    predict_X = np.concatenate((D1[:,0],D2[:,0]),axis=None)
-    predict_Y = predict(predict_X,W)
-    print(predict_Y)
+    predict_data = np.concatenate((D1,D2),axis=0)
+    predict_Z = predict(predict_data,W)
+    print(predict_Z)
 
 # main
 if is_random:
