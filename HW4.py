@@ -45,17 +45,37 @@ def design_mat(x,y):
     phi[2] = y
     return phi
 
-
-def predict(D,W):
-    Z = np.zeros_like(D[:,0])
-    for i,d in enumerate(D):
+def predict(Data,W):
+    Z = np.zeros_like(Data[:,0])
+    for i,d in enumerate(Data):
         phi = design_mat(d[0],d[1])
         prob = logis_fun(phi,W)
         if prob < 0.5:
-            Z[i] = 1
-        else:
             Z[i] = 0
+        else:
+            Z[i] = 1
     return Z
+
+def print_result(title,W,D1,D2):
+    pred_D1 = predict(D1,W)
+    pred_D2 = predict(D2,W)
+    TP = len(pred_D1[pred_D1==0])
+    FP = len(pred_D2[pred_D2==0])
+    FN = len(pred_D1[pred_D1==1])
+    TN = len(pred_D2[pred_D2==1])
+    print(title,"\n\n")
+    print("W:")
+    for w in W:
+        print(w)
+    print("Confusion Matrix:")
+    print("{:15}{:^20}{:^20}".format("","Predict cluster 1 ","Predict cluster 2"))
+    print("{:15}{:^20}{:^20}".format("Is cluster 1",TP,FN))
+    print("{:15}{:^20}{:^20}".format("Is cluster 2",FP,TN))
+    print("")
+    print("Sensitivity (Successfully predict cluster 1): {:.5}".format(TP / (TP + FN)))
+    print("Specificity (Successfully predict cluster 2): {:.5}".format(TN / (FP + TN)))
+    print("")
+    print("----------------------------------------")
 
 def logistic(D1,D2):
     # f(D) = w0 + w1*x + w2*y
@@ -66,6 +86,7 @@ def logistic(D1,D2):
     # 1 / (1 + e^(-XW)) - y
     L = np.zeros((mat_len,1))
     Y = np.zeros((mat_len,1))
+    # D1 label 0 , D2 label 1
     for i,d in enumerate(D1):
         phi = design_mat(d[0],d[1])
         A.append(phi.copy())
@@ -75,7 +96,6 @@ def logistic(D1,D2):
         A.append(phi.copy())
         Y[len(D1) + i,0] = 1
     A = np.array(A)
-    print(A.shape)
 
     # Gradient descent
     for i in range(N):
@@ -92,8 +112,10 @@ def logistic(D1,D2):
 
     # Newton's method
     DA = np.zeros_like(A)
+    D = np.zeros((mat_len,mat_len))
     global is_print
     for i in range(N):
+        print("Iteration : {}".format(i))
         pre_W = W_newt.copy()
         if i == 2:
             is_print = False
@@ -103,13 +125,22 @@ def logistic(D1,D2):
             L[j,0] = logis_fun(A[j],W_newt)
             for k in range(dimension):
                 DA[j,k] = A[j,k] * h_fac(A[j,k],W_newt[k])
-
+            D[j,j] = np.exp(-A[j]@W_newt) / (1 + np.exp(-A[j]@W_newt))**2
+        print(-A[j]@W_newt)
         grad = learning_rate* A.T@(Y - L)
         # H = AT*D*A
-        H = A.T @ DA
-        W_newt = W_newt - np.linalg.inv(H)@grad
-        print("descent num : \n",np.linalg.inv(H)@grad)
-        print("W_grad : \n",W_newt)
+        # H = A.T @ np.diag(np.ravel(np.exp(-A@W_newt)/(1+np.exp(-A@W_newt))**2)) @A
+        H = A.T @ D @ A
+        print("Hessian matrix : \n",H)
+        print("Hessian inverse : \n",np.linalg.inv(H))
+        if np.linalg.det(H) != 0:
+            W_newt = W_newt - learning_rate * np.linalg.inv(H)@grad
+            print("descent num : \n",np.linalg.inv(H)@grad)
+        else:
+            W_newt = W_newt + grad
+            print("descent num : \n",grad)
+        
+        print("W_newt : \n",W_newt)
         if (np.all((np.abs(pre_W - W_newt) < thresd))):
             print("Newton's method converges at iteration {}.".format(i))
             break
@@ -118,6 +149,7 @@ def logistic(D1,D2):
     predict_data = np.concatenate((D1,D2),axis=0)
     predict_Z = predict(predict_data,W_grad)
     print(predict_Z)
+    print_result("Gradient descent:",W_grad,D1,D2)
 
 # main
 if is_random:
