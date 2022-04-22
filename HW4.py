@@ -2,6 +2,8 @@ import numpy as np
 import time
 import matplotlib.pyplot as plt
 import sys
+import struct as st
+import math
 
 is_test = True
 is_random = False
@@ -10,8 +12,81 @@ N = 10
 dimension = 3
 learning_rate = 1
 thresd = 0.00001
+test_num = 10
+
+train_img_arr = []
+train_label_arr = []
+test_img_arr = []
+test_label_arr = []
+# the probability of image belongs to i
+Pi = []
+Mu = []
+classes = []
+nImg = 0
+nRow = 0
+nCol = 0
 
 is_print = False
+if not is_test:
+    filename = {'images' : 'train-images.idx3-ubyte' ,\
+                'labels' : 'train-labels.idx1-ubyte' ,\
+                'test_img' : 't10k-images.idx3-ubyte' ,\
+                'test_labels' : 't10k-labels.idx1-ubyte',\
+                'online_test' : 'testfile.txt'}
+else:
+    filename = {'images' : 't10k-images.idx3-ubyte' ,\
+                'labels' : 't10k-labels.idx1-ubyte',\
+                'online_test' : 'testfile.txt'}
+
+def open_img(filename):
+    global nImg,nRow,nCol
+    with open(filename,'rb') as imagesfile:
+        imagesfile.seek(0)
+        magic = st.unpack('>4B',imagesfile.read(4))
+        nImg = st.unpack('>I',imagesfile.read(4))[0] #num of images
+        nRow = st.unpack('>I',imagesfile.read(4))[0] #num of rows
+        nCol = st.unpack('>I',imagesfile.read(4))[0] #num of column
+        
+        nBytesTotal = nImg*nRow*nCol*1 #since each pixel data is 1 byte
+        img_arr = np.asarray(st.unpack('>'+'B'*nBytesTotal,imagesfile.read(nBytesTotal))).reshape((nImg,nRow,nCol))
+        return img_arr
+
+def open_label(filename):
+    with open(filename, 'rb') as f:
+        magic, size = st.unpack('>II', f.read(8))
+        label_arr = np.fromfile(f, dtype=np.dtype(np.uint8)).newbyteorder(">")  
+        return label_arr 
+
+def convert_img(img_arr):
+    for i,img in enumerate(img_arr):
+        img[img<128] = 0
+        img[img>=128] = 1
+    return img_arr
+
+
+def load():
+    global train_img_arr,train_label_arr
+    global test_img_arr,test_label_arr
+    
+    train_img_arr = open_img(filename['images'])
+    train_label_arr = open_label(filename['labels'])
+    
+
+    if is_test:
+        train_img_arr = train_img_arr[0:test_num + 100]
+        train_label_arr = train_label_arr[0:test_num + 100]
+        test_img_arr = train_img_arr[0:test_num]
+        test_label_arr = train_label_arr[0:test_num]
+    else:
+        test_img_arr = open_img(filename['test_img'])
+        test_label_arr = open_label(filename['test_labels'])
+
+    # convert image to 2 bins
+    train_img_arr = convert_img(train_img_arr.copy())
+    test_img_arr = convert_img(test_img_arr.copy())
+
+    print("Train img num : ",len(train_label_arr))
+    print("Test img num : ",len(test_label_arr))
 
 def generate_data(x_mu,x_var,y_mu,y_var,n):
     data = np.zeros((n,2))
@@ -151,14 +226,55 @@ def logistic(D1,D2):
     print(predict_Z)
     print_result("Gradient descent:",W_grad,D1,D2)
 
+def EM():
+    global train_img_arr,train_label_arr
+    global test_img_arr,test_label_arr
+    global classes,Pi,Mu
+
+    # initial data
+    classes,counts=np.unique(train_label_arr,return_counts=True)
+    Pi = np.ones_like(classes , dtype=np.float64) / len(classes)
+    Mu = np.ones((len(classes),nRow*nCol), dtype=np.float64) / 2.0
+    # responsibility
+    gm = np.zeros((len(train_img_arr),len(classes)), dtype=np.float64)
+    # E-step (calc responsibility)
+    for i,img in enumerate(train_img_arr):
+        label = train_label_arr[i]
+        prob = np.zeros_like(classes, dtype=np.float64)
+        for j,l in enumerate(classes):
+            for k,pix in enumerate(img.flatten()):
+                prob[j] = prob[j] + (np.log(Mu[j,k]**pix) + np.log((1-Mu[j,k]) ** (1 - pix)))
+            prob[j] *= Pi[j]
+        gm[i,label] = prob[label] / prob.sum()
+    
+    # M-step (update model parameter)
+    Num = np.zeros_like(classes)
+    for i,img in enumerate(train_img_arr):
+        label = train_label_arr[i]
+        Num[label] += 1
+        Mu[label] += gm[i,label] * img.flatten()
+    total_num = Num.sum()
+    for i,label in enumerate(classes):
+        Mu[label] /= Num[label]
+        Pi[label] = Num[label] / total_num
+    print(Mu[0])
+    print(Pi)
+
+
 # main
 if is_random:
     seed = int(time.time())
 np.random.seed(seed)
 
+# Logistic Regression
 D1 = generate_data(1,2,1,2,50)
 D2 = generate_data(10,2,10,2,50)
-logistic(D1,D2)
+# logistic(D1,D2)
+
+# EM algorithm
+load()
+EM()
+
 sys.exit()
 
 plt.figure(figsize=(8, 6), dpi=120)
