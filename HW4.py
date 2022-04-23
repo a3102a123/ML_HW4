@@ -31,12 +31,10 @@ if not is_test:
     filename = {'images' : 'train-images.idx3-ubyte' ,\
                 'labels' : 'train-labels.idx1-ubyte' ,\
                 'test_img' : 't10k-images.idx3-ubyte' ,\
-                'test_labels' : 't10k-labels.idx1-ubyte',\
-                'online_test' : 'testfile.txt'}
+                'test_labels' : 't10k-labels.idx1-ubyte'}
 else:
     filename = {'images' : 't10k-images.idx3-ubyte' ,\
-                'labels' : 't10k-labels.idx1-ubyte',\
-                'online_test' : 'testfile.txt'}
+                'labels' : 't10k-labels.idx1-ubyte'}
 
 def open_img(filename):
     global nImg,nRow,nCol
@@ -73,10 +71,10 @@ def load():
     
 
     if is_test:
+        test_img_arr = train_img_arr[test_num + 100:test_num * 2 + 100]
+        test_label_arr = train_label_arr[test_num + 100:test_num * 2 + 100]
         train_img_arr = train_img_arr[0:test_num + 100]
         train_label_arr = train_label_arr[0:test_num + 100]
-        test_img_arr = train_img_arr[0:test_num]
-        test_label_arr = train_label_arr[0:test_num]
     else:
         test_img_arr = open_img(filename['test_img'])
         test_label_arr = open_label(filename['test_labels'])
@@ -226,6 +224,15 @@ def logistic(D1,D2):
     print(predict_Z)
     print_result("Gradient descent:",W_grad,D1,D2)
 
+def NormalizeData(data):
+    return (data - np.min(data)) / (np.max(data) - np.min(data))
+
+def log_Bernoulli(p,x):
+    p1 = p**x
+    p0 = (1 - p) ** (1-x)
+    return np.log(p1) + np.log(p0)
+    (np.log(Mu[j,k]**pix) + np.log((1-Mu[j,k]) ** (1 - pix)))
+
 def EM():
     global train_img_arr,train_label_arr
     global test_img_arr,test_label_arr
@@ -233,33 +240,93 @@ def EM():
 
     # initial data
     classes,counts=np.unique(train_label_arr,return_counts=True)
+    # the probability of label i appear
     Pi = np.ones_like(classes , dtype=np.float64) / len(classes)
+    # the probablity of pixel shows 1
     Mu = np.ones((len(classes),nRow*nCol), dtype=np.float64) / 2.0
     # responsibility
     gm = np.zeros((len(train_img_arr),len(classes)), dtype=np.float64)
-    # E-step (calc responsibility)
-    for i,img in enumerate(train_img_arr):
-        label = train_label_arr[i]
-        prob = np.zeros_like(classes, dtype=np.float64)
+    for ite in range(3):
+        print("{} iteration : ".format(ite))
+        # E-step (calc responsibility)
+        # prevent zero show in log function
+        Mu[Mu == 0] = 1e-50
+        Mu[Mu >= 1.0] = 1 - 1e-10
+        for i,img in enumerate(train_img_arr):
+            label = train_label_arr[i]
+            prob = np.zeros_like(classes, dtype=np.float64)
+            for j,l in enumerate(classes):
+                for k,pix in enumerate(img.flatten()):
+                    prob[j] = prob[j] + (np.log(Mu[j,k]**pix) + np.log((1-Mu[j,k]) ** (1 - pix)))
+                prob[j] += np.log(Pi[j])
+            # print(prob,prob.sum())
+            prob = np.exp(prob)
+            gm[i,label] = prob[label] / prob.sum()
+        # print(gm[0])
+        
+        # M-step (update model parameter)
+        Num = np.zeros_like(classes)
+        Mu.fill(0)
+        for i,img in enumerate(train_img_arr):
+            label = train_label_arr[i]
+            Num[label] += 1
+            Mu[label] += gm[i,label] * img.flatten()
+        total_num = Num.sum()
+        for i,label in enumerate(classes):
+            Mu[label] /= Num[label]
+            Pi[label] = Num[label] / total_num
+        # plt.imshow(Mu[5].reshape(img.shape),cmap='gray')
+        # plt.show()
+        for l in classes:
+            print(l," max : ",Mu[l].max()," / min : ",Mu[l].min())
+        print(Pi)
+
+def predict_EM():
+    global test_img_arr,test_label_arr
+    global classes,Pi,Mu
+    prob = np.zeros_like(classes, dtype=np.float64)
+    result = np.zeros((len(test_img_arr)))
+    # prevent zero show in log function
+    Mu[Mu == 0] = 1e-50
+    Mu[Mu >= 1.0] = 1 - 1e-10
+    print("Pi : ",Pi)
+    for i,img in enumerate(test_img_arr):
+        prob.fill(0)
         for j,l in enumerate(classes):
             for k,pix in enumerate(img.flatten()):
                 prob[j] = prob[j] + (np.log(Mu[j,k]**pix) + np.log((1-Mu[j,k]) ** (1 - pix)))
-            prob[j] *= Pi[j]
-        gm[i,label] = prob[label] / prob.sum()
-    
-    # M-step (update model parameter)
-    Num = np.zeros_like(classes)
-    for i,img in enumerate(train_img_arr):
-        label = train_label_arr[i]
-        Num[label] += 1
-        Mu[label] += gm[i,label] * img.flatten()
-    total_num = Num.sum()
-    for i,label in enumerate(classes):
-        Mu[label] /= Num[label]
-        Pi[label] = Num[label] / total_num
-    print(Mu[0])
-    print(Pi)
+                if i == 0 and j == 0 and k > 500:
+                    print("mu : {} , pix : {}".format(Mu[j,k],pix))
+                    print(prob[j],Mu[j,k]**pix,(1-Mu[j,k]) ** (1 - pix))
+            prob[j] += np.log(Pi[j])
+        result[i] = np.argmax(prob)
+        print(prob)
 
+    print(test_label_arr)
+    print(result)
+
+# show the image
+def im_show(img,label,ax):
+    ax.set_title('Label is {label}'.format(label=label))
+    ax.imshow(img, cmap='gray')
+
+def draw_EM():
+    global classes,Pi,Mu
+    fig, axs = plt.subplots(2, 5)
+    for a in range(0,2):
+        for b in range(0,5):
+            ax = axs[a,b]
+            l = classes[a*5+b]
+            img = np.zeros_like(test_img_arr[0])
+            for k,pix in enumerate(img.flatten()):
+                prob0 = 1-Mu[l,k]
+                prob1 = Mu[l,k]
+                if prob1 >= prob0:
+                    pix = 1
+            print("Class {}:".format(l))
+            print(img)
+            im_show(img,l,ax)
+    plt.show()
 
 # main
 if is_random:
@@ -267,13 +334,14 @@ if is_random:
 np.random.seed(seed)
 
 # Logistic Regression
-D1 = generate_data(1,2,1,2,50)
-D2 = generate_data(10,2,10,2,50)
+# D1 = generate_data(1,2,1,2,50)
+# D2 = generate_data(10,2,10,2,50)
 # logistic(D1,D2)
-
 # EM algorithm
 load()
 EM()
+predict_EM()
+# draw_EM()
 
 sys.exit()
 
