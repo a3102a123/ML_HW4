@@ -8,9 +8,9 @@ import math
 is_test = True
 is_random = False
 seed = 521
-N = 10
-dimension = 3
+N = 1000
 learning_rate = 1
+print_num = 4
 thresd = 0.00001
 test_num = 10
 
@@ -25,6 +25,7 @@ classes = []
 nImg = 0
 nRow = 0
 nCol = 0
+dimension = 3
 
 is_print = False
 if not is_test:
@@ -95,7 +96,7 @@ def generate_data(x_mu,x_var,y_mu,y_var,n):
     return data
 
 def logis_fun(phi,W):
-    return 1 / (1 + np.exp(-(phi@W)))
+    return 1 / (1 + np.exp(np.clip(-(phi@W),-500,500)))
 
 # f(D) = w0 + x*w1 + y*w2
 def f_x(x,y,W):
@@ -105,7 +106,7 @@ def f_x(x,y,W):
 # x = Xik , w = Wk , both are scalar
 def h_fac(x,w):
     # let E = e^(-Xik * Wk)
-    E = np.exp(-x*w)
+    E = np.exp(np.clip(-x*w,-500,500))
     if is_print:
         print(-x*w)
     return E/(1 + E)**2
@@ -150,10 +151,16 @@ def print_result(title,W,D1,D2):
     print("")
     print("----------------------------------------")
 
+def draw_result(title,D1,D2,ax):
+    ax.set_title(title)
+    ax.scatter(D1[:,0],D1[:,1],color='r',s=15)
+    ax.scatter(D2[:,0],D2[:,1],color='b',s=15)
+
 def logistic(D1,D2):
     # f(D) = w0 + w1*x + w2*y
     W_grad = np.array([[1],[1],[1]])
     W_newt = np.array([[1],[1],[1]])
+    descent_num = np.array([[0],[0],[0]])
     A = []
     mat_len = (len(D1) + len(D2))
     # 1 / (1 + e^(-XW)) - y
@@ -169,26 +176,28 @@ def logistic(D1,D2):
         A.append(phi.copy())
         Y[len(D1) + i,0] = 1
     A = np.array(A)
+    normalize_A = NormalizeData(A)
 
     # Gradient descent
     for i in range(N):
         pre_W = W_grad.copy()
         for j in range(mat_len):
             L[j,0] = logis_fun(A[j],W_grad)
-        grad = learning_rate* A.T@(Y - L)
+        grad = learning_rate * A.T@(Y - L)
         W_grad = W_grad + grad
-        # print("Gradient : \n",grad)
-        # print("W_grad : \n",W_grad)
+        if i <= print_num or i == N-1:
+            print("Gradient : \n",grad)
+            print("W_grad : \n",W_grad)
         if (np.all((np.abs(pre_W - W_grad) < thresd))):
             print("Gradient descent converges at iteration {}.".format(i))
             break
 
+    print("Begin newton's method\n\n")
     # Newton's method
-    DA = np.zeros_like(A)
-    D = np.zeros((mat_len,mat_len))
+    D = np.zeros((mat_len,mat_len), dtype=np.float64)
     global is_print
     for i in range(N):
-        print("Iteration : {}".format(i))
+        # print("Iteration : {}".format(i))
         pre_W = W_newt.copy()
         if i == 2:
             is_print = False
@@ -196,33 +205,62 @@ def logistic(D1,D2):
             is_print = False
         for j in range(mat_len):
             L[j,0] = logis_fun(A[j],W_newt)
-            for k in range(dimension):
-                DA[j,k] = A[j,k] * h_fac(A[j,k],W_newt[k])
-            D[j,j] = np.exp(-A[j]@W_newt) / (1 + np.exp(-A[j]@W_newt))**2
-        print(-A[j]@W_newt)
-        grad = learning_rate* A.T@(Y - L)
+            # normlize_W = W_newt / np.linalg.norm(W_newt)
+            # normalize_A = A[j] / np.linalg.norm(A[j])
+            # D[j,j] = np.exp(-A[j]@W_newt) / (1 + np.exp(-A[j]@W_newt))**2
+            if j == mat_len - 1 and False:
+                print(np.exp(-normalize_A[0]@W_newt)/(1 + np.exp(-normalize_A[0]@W_newt)),1/(1 + np.exp(-normalize_A[0]@W_newt)))
+            logis = logis_fun(A[j],W_newt) - 0.5
+            D[j,j] = logis * (1 - logis)
+        if i <= 2:
+            print(D.diagonal())
+        grad = A.T@(Y - L)
         # H = AT*D*A
         # H = A.T @ np.diag(np.ravel(np.exp(-A@W_newt)/(1+np.exp(-A@W_newt))**2)) @A
         H = A.T @ D @ A
-        print("Hessian matrix : \n",H)
-        print("Hessian inverse : \n",np.linalg.inv(H))
-        if np.linalg.det(H) != 0:
-            W_newt = W_newt - learning_rate * np.linalg.inv(H)@grad
-            print("descent num : \n",np.linalg.inv(H)@grad)
-        else:
-            W_newt = W_newt + grad
-            print("descent num : \n",grad)
-        
-        print("W_newt : \n",W_newt)
-        if (np.all((np.abs(pre_W - W_newt) < thresd))):
-            print("Newton's method converges at iteration {}.".format(i))
-            break
+        if i <= print_num or i >= N-10:
+            print("Hessian matrix : \n",H)
+            if np.linalg.det(H) != 0:
+                H_inv = np.linalg.inv(H)
+                pre_desc_num = descent_num.copy()
+                descent_num = learning_rate * (H_inv@grad)
+                W_newt = W_newt + descent_num
+                print("Hessian inverse : \n",np.linalg.inv(H))
+                print("Gradient : \n",grad)
+                print("descent num : \n",-np.linalg.inv(H)@grad)
+            else:
+                W_newt = W_newt + grad
+                print("descent num (by gradient descent): \n",grad)
+            
+            print("W_newt : \n",W_newt)
+            if (np.all((np.abs(pre_desc_num - descent_num) < thresd))):
+                print("Newton's method converges at iteration {}.".format(i))
+                break
 
     # prediction
     predict_data = np.concatenate((D1,D2),axis=0)
-    predict_Z = predict(predict_data,W_grad)
-    print(predict_Z)
+    predict_grad_Z = predict(predict_data,W_grad)
+    predict_new_Z = predict(predict_data,W_newt)
+    predict_grad_Z_idx = (predict_grad_Z == 1)
+    predict_new_Z_idx = (predict_new_Z == 1)
+    print("Gradient descent prediction :",predict_grad_Z)
+    print("Newton's method prediction : \n",predict_new_Z)
     print_result("Gradient descent:",W_grad,D1,D2)
+    print_result("Newton's method descent:",W_newt,D1,D2)
+    
+    # draw result
+    # plt.figure(figsize=(8, 6), dpi=120)
+    fig, axs = plt.subplots(1,3)
+    fig.set_figheight = 8
+    fig.set_figwidth = 6
+    fig.dpi = 150
+    grad_D1 = predict_data[np.invert(predict_grad_Z_idx)]
+    grad_D2 = predict_data[predict_grad_Z_idx]
+    new_D1 = predict_data[np.invert(predict_new_Z_idx)]
+    new_D2 = predict_data[predict_new_Z_idx]
+    draw_result("Ground truth",D1,D2,axs[0])
+    draw_result("Gradient descent",grad_D1,grad_D2,axs[1])
+    draw_result("Newton's method",new_D1,new_D2,axs[2])
 
 def NormalizeData(data):
     return (data - np.min(data)) / (np.max(data) - np.min(data))
@@ -232,6 +270,28 @@ def log_Bernoulli(p,x):
     p0 = (1 - p) ** (1-x)
     return np.log(p1) + np.log(p0)
     (np.log(Mu[j,k]**pix) + np.log((1-Mu[j,k]) ** (1 - pix)))
+
+# D1 : prediction , D2 : ground turth
+def print_EM_result(D1,D2,label=""):
+
+    D1 = (D1 == 1)
+    D2 = (D2 == 1)
+    inv_D1 = np.invert(D1)
+    inv_D2 = np.invert(D2)
+    TP = np.logical_and(D1,D2).sum()
+    FP = np.logical_and(D1,inv_D2).sum()
+    FN = np.logical_and(inv_D1,D2).sum()
+    TN = np.logical_and(inv_D1,inv_D2).sum()
+
+    print("Confusion Matrix {}:".format(label))
+    print("{:15}{:^20}{:^20}".format("","Predict number {} ".format(label),"Predict not number {}".format(label)))
+    print("{:15}{:^20}{:^20}".format("Is number {}".format(label),TP,FN))
+    print("{:15}{:^20}{:^20}".format("Is number {}".format(label),FP,TN))
+    print("")
+    print("Sensitivity (Successfully predict number {}): {:.5}".format(label,TP / (TP + FN)))
+    print("Specificity (Successfully predict not number {}): {:.5}".format(label,TN / (FP + TN)))
+    print("")
+    print("----------------------------------------")
 
 def EM():
     global train_img_arr,train_label_arr
@@ -302,8 +362,20 @@ def predict_EM():
         result[i] = np.argmax(prob)
         print(prob)
 
+    for l in classes:
+        groundTruth = test_label_arr.copy()
+        prediction = result.copy()
+        trueTable = (groundTruth == l)
+        groundTruth[trueTable] = 1
+        groundTruth[np.invert(trueTable)] = 0
+        trueTable = (prediction == l)
+        prediction[trueTable] = 1
+        prediction[np.invert(trueTable)] = 0
+        print_EM_result(prediction,groundTruth,l)
+
     print(test_label_arr)
     print(result)
+
 
 # show the image
 def im_show(img,label,ax):
@@ -318,15 +390,17 @@ def draw_EM():
             ax = axs[a,b]
             l = classes[a*5+b]
             img = np.zeros_like(test_img_arr[0])
-            for k,pix in enumerate(img.flatten()):
-                prob0 = 1-Mu[l,k]
-                prob1 = Mu[l,k]
-                if prob1 >= prob0:
-                    pix = 1
+            row,col = img.shape
+            for i in range(row):
+                for j in range(col):
+                    k = i*col + j
+                    prob0 = 1-Mu[l,k]
+                    prob1 = Mu[l,k]
+                    if prob1 >= prob0:
+                        img[i,j] = 1
             print("Class {}:".format(l))
             print(img)
             im_show(img,l,ax)
-    plt.show()
 
 # main
 if is_random:
@@ -334,19 +408,12 @@ if is_random:
 np.random.seed(seed)
 
 # Logistic Regression
-# D1 = generate_data(1,2,1,2,50)
-# D2 = generate_data(10,2,10,2,50)
-# logistic(D1,D2)
+D1 = generate_data(1,2,1,2,50)
+D2 = generate_data(10,2,10,2,50)
+logistic(D1,D2)
 # EM algorithm
-load()
-EM()
-predict_EM()
+# load()
+# EM()
+# predict_EM()
 # draw_EM()
-
-sys.exit()
-
-plt.figure(figsize=(8, 6), dpi=120)
-plt.title("Ground truth")
-plt.scatter(D1[:,0],D1[:,1],color='r',s=15)
-plt.scatter(D2[:,0],D2[:,1],color='b',s=15)
 plt.show()
