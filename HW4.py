@@ -4,14 +4,17 @@ import matplotlib.pyplot as plt
 import sys
 import struct as st
 import math
+import time
 
-is_test = True
+is_EM = True
+is_test = False
 is_random = False
 seed = 521
-N = 1000
-learning_rate = 1
+N = 5000
+EM_N = 3
+learning_rate = 0.01
 print_num = 4
-thresd = 0.00001
+thresd = 0.001
 test_num = 10
 
 train_img_arr = []
@@ -183,14 +186,18 @@ def logistic(D1,D2):
         pre_W = W_grad.copy()
         for j in range(mat_len):
             L[j,0] = logis_fun(A[j],W_grad)
+        pre_desc_num = descent_num.copy()
         grad = learning_rate * A.T@(Y - L)
-        W_grad = W_grad + grad
-        if i <= print_num or i == N-1:
-            print("Gradient : \n",grad)
+        descent_num = grad
+        W_grad = W_grad + descent_num
+        if i <= print_num or i >= N-5:
+            print("Gradient : \n",descent_num)
             print("W_grad : \n",W_grad)
-        if (np.all((np.abs(pre_W - W_grad) < thresd))):
+        if (np.sum((np.abs(pre_W - W_grad) < thresd)) >=1):
             print("Gradient descent converges at iteration {}.".format(i))
             break
+        elif i == N-1:
+                print("Newton's method converges at iteration {}.".format(i))
 
     print("Begin newton's method\n\n")
     # Newton's method
@@ -210,32 +217,35 @@ def logistic(D1,D2):
             # D[j,j] = np.exp(-A[j]@W_newt) / (1 + np.exp(-A[j]@W_newt))**2
             if j == mat_len - 1 and False:
                 print(np.exp(-normalize_A[0]@W_newt)/(1 + np.exp(-normalize_A[0]@W_newt)),1/(1 + np.exp(-normalize_A[0]@W_newt)))
-            logis = logis_fun(A[j],W_newt) - 0.5
-            D[j,j] = logis * (1 - logis)
-        if i <= 2:
-            print(D.diagonal())
+            logis = logis_fun(A[j],W_newt)
+            D[j,j] = logis * (1 - logis) - 0.5
         grad = A.T@(Y - L)
         # H = AT*D*A
         # H = A.T @ np.diag(np.ravel(np.exp(-A@W_newt)/(1+np.exp(-A@W_newt))**2)) @A
         H = A.T @ D @ A
-        if i <= print_num or i >= N-10:
+        if np.linalg.det(H) != 0:
+            H_inv = np.linalg.inv(H)
+            pre_desc_num = descent_num.copy()
+            descent_num = 1 * (H_inv@grad)
+            W_newt = W_newt - descent_num
+        else:
+            W_newt = W_newt + grad
+        # print message
+        if i <= print_num or i >= N-5:
             print("Hessian matrix : \n",H)
+            print("Hessian inverse : \n",np.linalg.inv(H))
+            print("Gradient : \n",grad)
             if np.linalg.det(H) != 0:
-                H_inv = np.linalg.inv(H)
-                pre_desc_num = descent_num.copy()
-                descent_num = learning_rate * (H_inv@grad)
-                W_newt = W_newt + descent_num
-                print("Hessian inverse : \n",np.linalg.inv(H))
-                print("Gradient : \n",grad)
                 print("descent num : \n",-np.linalg.inv(H)@grad)
             else:
-                W_newt = W_newt + grad
                 print("descent num (by gradient descent): \n",grad)
-            
             print("W_newt : \n",W_newt)
-            if (np.all((np.abs(pre_desc_num - descent_num) < thresd))):
-                print("Newton's method converges at iteration {}.".format(i))
-                break
+        if (np.sum((np.abs(pre_W - W_newt) < thresd)) >= 2):
+        # if (np.all((np.abs(pre_desc_num - descent_num) < thresd))):
+            print("Newton's method converges at iteration {}.".format(i))
+            break
+        elif i == N-1:
+            print("Newton's method converges at iteration {}.".format(i))
 
     # prediction
     predict_data = np.concatenate((D1,D2),axis=0)
@@ -306,7 +316,8 @@ def EM():
     Mu = np.ones((len(classes),nRow*nCol), dtype=np.float64) / 2.0
     # responsibility
     gm = np.zeros((len(train_img_arr),len(classes)), dtype=np.float64)
-    for ite in range(3):
+    for ite in range(EM_N):
+        strat_time = time.time()
         print("{} iteration : ".format(ite))
         # E-step (calc responsibility)
         # prevent zero show in log function
@@ -337,9 +348,13 @@ def EM():
             Pi[label] = Num[label] / total_num
         # plt.imshow(Mu[5].reshape(img.shape),cmap='gray')
         # plt.show()
-        for l in classes:
-            print(l," max : ",Mu[l].max()," / min : ",Mu[l].min())
-        print(Pi)
+        # for l in classes:
+        #     print(l," max : ",Mu[l].max()," / min : ",Mu[l].min())
+        # print(Pi)
+        end_time = time.time()
+        time_c= end_time - strat_time
+        min_c = int(time_c / 60)
+        print('Iteration {} time cost : {}m , {:.3f}s'.format(ite,min_c,time_c))
 
 def predict_EM():
     global test_img_arr,test_label_arr
@@ -407,13 +422,44 @@ if is_random:
     seed = int(time.time())
 np.random.seed(seed)
 
-# Logistic Regression
-D1 = generate_data(1,2,1,2,50)
-D2 = generate_data(10,2,10,2,50)
-logistic(D1,D2)
-# EM algorithm
-# load()
-# EM()
-# predict_EM()
-# draw_EM()
+strat_time = time.time()
+if not is_EM:
+    # Logistic Regression
+    if is_test:
+        D1 = generate_data(1,2,1,2,50)
+        D2 = generate_data(10,2,10,2,50)
+        D1 = generate_data(1,2,1,2,50)
+        D2 = generate_data(3,4,3,4,50)
+    else:
+        print("Point number : ")
+        point_num = int(input())
+        print("input mx1 : ")
+        mx1 = float(input())
+        print("input my1 : ")
+        my1 = float(input())
+        print("input mx2 : ")
+        mx2 = float(input())
+        print("input my2 : ")
+        my2 = float(input())
+        print("input vx1 : ")
+        vx1 = float(input())
+        print("input vy1 : ")
+        vy1 = float(input())
+        print("input vx2 : ")
+        vx2 = float(input())
+        print("input vy2 : ")
+        vy2 = float(input())
+        D1 = generate_data(mx1,vx1,my1,vy1,point_num)
+        D2 = generate_data(mx2,vx2,my2,vy2,point_num)
+    logistic(D1,D2)
+else:
+    # EM algorithm
+    load()
+    EM()
+    predict_EM()
+    draw_EM()
+end_time = time.time()
+time_c= end_time - strat_time
+min_c = int(time_c / 60)
+print('Total time cost : {}m , {:.3f}s'.format(min_c,time_c))
 plt.show()
