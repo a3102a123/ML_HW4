@@ -15,7 +15,7 @@ EM_N = 3
 learning_rate = 0.01
 print_num = 4
 thresd = 0.001
-test_num = 10
+test_num = 800
 
 train_img_arr = []
 train_label_arr = []
@@ -80,8 +80,12 @@ def load():
         train_img_arr = train_img_arr[0:test_num + 100]
         train_label_arr = train_label_arr[0:test_num + 100]
     else:
+        train_img_arr = train_img_arr[0:test_num]
+        train_label_arr = train_label_arr[0:test_num]
         test_img_arr = open_img(filename['test_img'])
         test_label_arr = open_label(filename['test_labels'])
+        test_img_arr = test_img_arr[0:2000]
+        test_label_arr = test_label_arr[0:2000]
 
     # convert image to 2 bins
     train_img_arr = convert_img(train_img_arr.copy())
@@ -296,7 +300,7 @@ def print_EM_result(D1,D2,label=""):
     print("Confusion Matrix {}:".format(label))
     print("{:15}{:^20}{:^20}".format("","Predict number {} ".format(label),"Predict not number {}".format(label)))
     print("{:15}{:^20}{:^20}".format("Is number {}".format(label),TP,FN))
-    print("{:15}{:^20}{:^20}".format("Is number {}".format(label),FP,TN))
+    print("{:15}{:^20}{:^20}".format("Is not number {}".format(label),FP,TN))
     print("")
     print("Sensitivity (Successfully predict number {}): {:.5}".format(label,TP / (TP + FN)))
     print("Specificity (Successfully predict not number {}): {:.5}".format(label,TN / (FP + TN)))
@@ -328,7 +332,7 @@ def EM():
             prob = np.zeros_like(classes, dtype=np.float64)
             for j,l in enumerate(classes):
                 for k,pix in enumerate(img.flatten()):
-                    prob[j] = prob[j] + (np.log(Mu[j,k]**pix) + np.log((1-Mu[j,k]) ** (1 - pix)))
+                    prob[j] = prob[j] + (pix * np.log(Mu[j,k]) + (1 - pix) * np.log((1-Mu[j,k])))
                 prob[j] += np.log(Pi[j])
             # print(prob,prob.sum())
             prob = np.exp(prob)
@@ -354,6 +358,7 @@ def EM():
         end_time = time.time()
         time_c= end_time - strat_time
         min_c = int(time_c / 60)
+        time_c = time_c - min_c * 60
         print('Iteration {} time cost : {}m , {:.3f}s'.format(ite,min_c,time_c))
 
 def predict_EM():
@@ -370,12 +375,12 @@ def predict_EM():
         for j,l in enumerate(classes):
             for k,pix in enumerate(img.flatten()):
                 prob[j] = prob[j] + (np.log(Mu[j,k]**pix) + np.log((1-Mu[j,k]) ** (1 - pix)))
-                if i == 0 and j == 0 and k > 500:
-                    print("mu : {} , pix : {}".format(Mu[j,k],pix))
-                    print(prob[j],Mu[j,k]**pix,(1-Mu[j,k]) ** (1 - pix))
+                # if i == 0 and j == 0 and k > 500:
+                #     print("mu : {} , pix : {}".format(Mu[j,k],pix))
+                #     print(prob[j],Mu[j,k]**pix,(1-Mu[j,k]) ** (1 - pix))
             prob[j] += np.log(Pi[j])
         result[i] = np.argmax(prob)
-        print(prob)
+        # print(prob)
 
     for l in classes:
         groundTruth = test_label_arr.copy()
@@ -461,5 +466,6 @@ else:
 end_time = time.time()
 time_c= end_time - strat_time
 min_c = int(time_c / 60)
+time_c = time_c - min_c * 60
 print('Total time cost : {}m , {:.3f}s'.format(min_c,time_c))
 plt.show()
